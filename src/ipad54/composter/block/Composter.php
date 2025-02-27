@@ -1,79 +1,48 @@
 <?php
 
-
 namespace ipad54\composter\block;
 
-
-use pocketmine\network\mcpe\protocol\SpawnParticleEffectPacket;
 use ipad54\composter\sound\ComposteEmptySound;
 use ipad54\composter\sound\ComposteFillSound;
 use ipad54\composter\sound\ComposteFillSuccessSound;
 use ipad54\composter\sound\ComposteReadySound;
-use pocketmine\block\utils\BlockDataSerializer;
 use pocketmine\block\BlockBreakInfo;
-use pocketmine\block\BlockIdentifier;
 use pocketmine\block\BlockToolType;
 use pocketmine\block\Opaque;
-use pocketmine\item\Item;
-use pocketmine\item\ItemIds;
+use pocketmine\data\bedrock\block\BlockStateWriter;
 use pocketmine\item\VanillaItems;
 use pocketmine\math\Vector3;
+use pocketmine\nbt\tag\CompoundTag;
+use pocketmine\network\mcpe\protocol\SpawnParticleEffectPacket;
 use pocketmine\player\Player;
+use pocketmine\world\World;
 
 class Composter extends Opaque
 {
+    protected int $fill = 0;
 
-    /** @var int */
-    protected $fill = 0;
-    /** @var int[] */
-    protected $ingridients = [
-        ItemIds::NETHER_WART => 30,
-        ItemIds::GRASS => 30,
-        ItemIds::KELP => 30,
-        ItemIds::LEAVES => 30,
-        ItemIds::DRIED_KELP => 30,
-        ItemIds::BEETROOT_SEEDS => 30,
-        ItemIds::MELON_SEEDS => 30,
-        ItemIds::SEEDS => 30,
-        ItemIds::PUMPKIN_SEEDS => 30,
-        ItemIds::TALLGRASS => 30,
-        ItemIds::SEAGRASS => 30,
-
-        ItemIds::DRIED_KELP_BLOCK => 50,
-        ItemIds::CACTUS => 50,
-        ItemIds::MELON => 50,
-        ItemIds::SUGARCANE => 50,
-
-        ItemIds::MELON_BLOCK => 65,
-        ItemIds::MUSHROOM_STEW => 65,
-        ItemIds::POTATO => 65,
-        ItemIds::WATER_LILY => 65,
-        ItemIds::CARROT => 65,
-        ItemIds::SEA_PICKLE => 65,
-        ItemIds::BROWN_MUSHROOM_BLOCK => 65,
-        ItemIds::RED_MUSHROOM_BLOCK => 65,
-        ItemIds::WHEAT => 65,
-        ItemIds::BEETROOT => 65,
-        ItemIds::PUMPKIN => 65,
-        ItemIds::CARVED_PUMPKIN => 65,
-        ItemIds::RED_FLOWER => 65,
-        ItemIds::YELLOW_FLOWER => 65,
-        ItemIds::APPLE => 65,
-
-        ItemIds::COOKIE => 85,
-        ItemIds::BAKED_POTATO => 85,
-        ItemIds::WHEAT_BLOCK => 85,
-        ItemIds::BREAD => 85,
-
-        ItemIds::CAKE => 100,
-        ItemIds::PUMPKIN_PIE => 100
-
+    protected array $ingredients = [
+        VanillaItems::NETHER_WART()->getTypeId() => 30,
+        VanillaItems::GRASS()->getTypeId() => 30,
+        VanillaItems::KELP()->getTypeId() => 30,
+        VanillaItems::LEAVES()->getTypeId() => 30,
+        VanillaItems::DRIED_KELP()->getTypeId() => 30,
+        VanillaItems::BEETROOT_SEEDS()->getTypeId() => 30,
+        VanillaItems::MELON_SEEDS()->getTypeId() => 30,
+        VanillaItems::WHEAT_SEEDS()->getTypeId() => 30,
+        VanillaItems::PUMPKIN_SEEDS()->getTypeId() => 30,
+        VanillaItems::SEAGRASS()->getTypeId() => 30,
+        VanillaItems::SUGAR_CANE()->getTypeId() => 50,
+        VanillaItems::MELON_SLICE()->getTypeId() => 50,
+        VanillaItems::CACTUS()->getTypeId() => 50,
+        VanillaItems::BAKED_POTATO()->getTypeId() => 85,
+        VanillaItems::BREAD()->getTypeId() => 85,
+        VanillaItems::PUMPKIN_PIE()->getTypeId() => 100
     ];
 
-
-    public function __construct(BlockIdentifier $idInfo, ?BlockBreakInfo $breakInfo = null)
+    public function __construct()
     {
-        parent::__construct($idInfo, "Composter", $breakInfo ?? new BlockBreakInfo(0.75, BlockToolType::AXE));
+        parent::__construct("Composter", new BlockBreakInfo(0.75, BlockToolType::AXE));
     }
 
     public function getFuelTime(): int
@@ -81,71 +50,74 @@ class Composter extends Opaque
         return 300;
     }
 
-    protected function writeStateToMeta(): int
+    protected function writeStateToCompoundTag(CompoundTag $tag): void
     {
-        return $this->fill;
+        $tag->setInt("fill", $this->fill);
     }
 
-    public function readStateFromData(int $id, int $stateMeta): void
+    public function readStateFromCompoundTag(CompoundTag $tag): void
     {
-        $this->fill = BlockDataSerializer::readBoundedInt("fill", $stateMeta, 0, 8);
-    }
-
-    public function getStateBitmask(): int
-    {
-        return 0b1111;
+        $this->fill = $tag->getInt("fill", 0);
     }
 
     private function spawnParticleEffect(Vector3 $position): void
     {
-        $packet = new SpawnParticleEffectPacket();
-        $packet->position = $position;
-        $packet->particleName = "minecraft:crop_growth_emitter";
-        $recipients = $this->position->getWorld()->getViewersForPosition($this->position);
-        foreach($recipients as $player){
+        $packet = SpawnParticleEffectPacket::create(
+            $position,
+            "minecraft:crop_growth_emitter"
+        );
+
+        foreach ($this->position->getWorld()->getNearbyPlayers($this->position, 16) as $player) {
             $player->getNetworkSession()->sendDataPacket($packet);
         }
     }
 
-    public function onInteract(Item $item, int $face, Vector3 $clickVector, ?Player $player = null): bool
+    public function onInteract(Player $player, Vector3 $clickPos): bool
     {
+        $item = $player->getInventory()->getItemInHand();
+        $world = $this->position->getWorld();
+
         if ($this->fill >= 8) {
             $this->fill = 0;
-            $this->position->getWorld()->setBlock($this->position, $this);
-            $this->position->getWorld()->addSound($this->position, new ComposteEmptySound());
-            $this->position->getWorld()->dropItem($this->position->add(0.5, 1.1, 0.5), VanillaItems::BONE_MEAL());
+            $world->setBlock($this->position, $this);
+            $world->addSound($this->position, new ComposteEmptySound());
+            $world->dropItem($this->position->add(0.5, 1.1, 0.5), VanillaItems::BONE_MEAL());
             return true;
         }
-        if (isset($this->ingridients[$item->getId()]) && $this->fill < 7) {
+
+        if (isset($this->ingredients[$item->getTypeId()]) && $this->fill < 7) {
             $item->pop();
+            $player->getInventory()->setItemInHand($item);
             $this->spawnParticleEffect($this->position->add(0.5, 0.5, 0.5));
-            if ($this->fill == 0) {
-                $this->incrimentFill(true);
-                return true;
-            }
-            $chance = $this->ingridients[$item->getId()];
+
+            $chance = $this->ingredients[$item->getTypeId()];
             if (mt_rand(0, 100) <= $chance) {
-                $this->incrimentFill(true);
+                $this->incrementFill(true);
                 return true;
             }
-            $this->position->getWorld()->addSound($this->position, new ComposteFillSound());
+
+            $world->addSound($this->position, new ComposteFillSound());
         }
+
         return true;
     }
 
-    public function incrimentFill(bool $playsound = false): bool
+    public function incrementFill(bool $playsound = false): bool
     {
         if ($this->fill >= 7) {
             return false;
         }
+
         if (++$this->fill >= 7) {
             $this->position->getWorld()->scheduleDelayedBlockUpdate($this->position, 25);
         } else {
             $this->position->getWorld()->setBlock($this->position, $this);
         }
+
         if ($playsound) {
             $this->position->getWorld()->addSound($this->position, new ComposteFillSuccessSound());
         }
+
         return true;
     }
 

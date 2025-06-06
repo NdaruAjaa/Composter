@@ -4,19 +4,22 @@ declare(strict_types=1);
 
 namespace ipad54\composter;
 
-
 use ipad54\composter\block\Composter;
-use pocketmine\block\BlockFactory;
-use pocketmine\block\BlockIdentifier as BID;
-use pocketmine\block\BlockLegacyIds as IDS;
-use pocketmine\item\ItemIds;
+use pocketmine\block\BlockTypeIds;
+use pocketmine\block\RuntimeBlockStateRegistry;
+use pocketmine\item\ItemTypeIds;
 use pocketmine\plugin\PluginBase;
 
 class Main extends PluginBase
 {
-
-    protected function onLoad() : void
+    protected function onLoad(): void
     {
-        BlockFactory::getInstance()->register(new Composter(new BID(IDS::COMPOSTER, 0, ItemIds::COMPOSTER)));
+        RuntimeBlockStateRegistry::getInstance()->register(Composter::class);
+        
+        // If you need to map the block to a specific type ID (optional)
+        RuntimeBlockStateRegistry::getInstance()->map(
+            BlockTypeIds::COMPOSTER,
+            fn() => new Composter(BlockTypeIds::COMPOSTER, 0, ItemTypeIds::COMPOSTER)
+        );
     }
 }

@@ -1,14 +1,15 @@
 <?php
 
+declare(strict_types=1);
+
 namespace ipad54\composter\block;
 
 use pocketmine\block\Block;
-use pocketmine\block\BlockTypeInfo;
 use pocketmine\block\Opaque;
 use pocketmine\block\utils\BlockDataSerializer;
 use pocketmine\block\utils\HorizontalFacingTrait;
+use pocketmine\data\runtime\RuntimeDataDescriber;
 use pocketmine\item\Item;
-use pocketmine\item\ItemTypeIds;
 use pocketmine\item\VanillaItems;
 use pocketmine\math\Vector3;
 use pocketmine\network\mcpe\protocol\SpawnParticleEffectPacket;
@@ -22,69 +23,76 @@ class Composter extends Opaque
 {
     use HorizontalFacingTrait;
 
-    protected int $fill = 0;
-    
+    protected int $fillLevel = 0;
+
+    /** @var array<string, int> */
     protected array $ingredients = [
-        ItemTypeIds::NETHER_WART => 30,
-        ItemTypeIds::GRASS => 30,
-        ItemTypeIds::KELP => 30,
-        ItemTypeIds::LEAVES => 30,
-        ItemTypeIds::DRIED_KELP => 30,
-        ItemTypeIds::BEETROOT_SEEDS => 30,
-        ItemTypeIds::MELON_SEEDS => 30,
-        ItemTypeIds::WHEAT_SEEDS => 30,
-        ItemTypeIds::PUMPKIN_SEEDS => 30,
-        ItemTypeIds::TALL_GRASS => 30,
-        ItemTypeIds::SEAGRASS => 30,
+        // Converted to string IDs
+        'minecraft:nether_wart' => 30,
+        'minecraft:grass' => 30,
+        'minecraft:kelp' => 30,
+        'minecraft:leaves' => 30,
+        'minecraft:dried_kelp' => 30,
+        'minecraft:beetroot_seeds' => 30,
+        'minecraft:melon_seeds' => 30,
+        'minecraft:wheat_seeds' => 30,
+        'minecraft:pumpkin_seeds' => 30,
+        'minecraft:tallgrass' => 30,
+        'minecraft:seagrass' => 30,
 
-        ItemTypeIds::DRIED_KELP_BLOCK => 50,
-        ItemTypeIds::CACTUS => 50,
-        ItemTypeIds::MELON => 50,
-        ItemTypeIds::SUGARCANE => 50,
+        'minecraft:dried_kelp_block' => 50,
+        'minecraft:cactus' => 50,
+        'minecraft:melon_slice' => 50,
+        'minecraft:sugar_cane' => 50,
 
-        ItemTypeIds::MELON_BLOCK => 65,
-        ItemTypeIds::MUSHROOM_STEW => 65,
-        ItemTypeIds::POTATO => 65,
-        ItemTypeIds::WATER_LILY => 65,
-        ItemTypeIds::CARROT => 65,
-        ItemTypeIds::SEA_PICKLE => 65,
-        ItemTypeIds::BROWN_MUSHROOM_BLOCK => 65,
-        ItemTypeIds::RED_MUSHROOM_BLOCK => 65,
-        ItemTypeIds::WHEAT => 65,
-        ItemTypeIds::BEETROOT => 65,
-        ItemTypeIds::PUMPKIN => 65,
-        ItemTypeIds::CARVED_PUMPKIN => 65,
-        ItemTypeIds::RED_FLOWER => 65,
-        ItemTypeIds::YELLOW_FLOWER => 65,
-        ItemTypeIds::APPLE => 65,
+        'minecraft:melon_block' => 65,
+        'minecraft:mushroom_stew' => 65,
+        'minecraft:potato' => 65,
+        'minecraft:waterlily' => 65,
+        'minecraft:carrot' => 65,
+        'minecraft:sea_pickle' => 65,
+        'minecraft:brown_mushroom_block' => 65,
+        'minecraft:red_mushroom_block' => 65,
+        'minecraft:wheat' => 65,
+        'minecraft:beetroot' => 65,
+        'minecraft:pumpkin' => 65,
+        'minecraft:carved_pumpkin' => 65,
+        'minecraft:red_flower' => 65,
+        'minecraft:yellow_flower' => 65,
+        'minecraft:apple' => 65,
 
-        ItemTypeIds::COOKIE => 85,
-        ItemTypeIds::BAKED_POTATO => 85,
-        ItemTypeIds::HAY_BALE => 85,
-        ItemTypeIds::BREAD => 85,
+        'minecraft:cookie' => 85,
+        'minecraft:baked_potato' => 85,
+        'minecraft:hay_block' => 85,
+        'minecraft:bread' => 85,
 
-        ItemTypeIds::CAKE => 100,
-        ItemTypeIds::PUMPKIN_PIE => 100
+        'minecraft:cake' => 100,
+        'minecraft:pumpkin_pie' => 100
     ];
 
-    public function __construct(BlockTypeInfo $typeInfo)
+    public function getFuelTime(): int
     {
-        parent::__construct($typeInfo);
+        return 300;
     }
 
-    protected function writeStateToMeta(): int
+    protected function describeBlockOnlyState(RuntimeDataDescriber $w): void
     {
-        return $this->fill;
+        $w->boundedInt(0, 8, $this->fillLevel);
+        $this->describeHorizontalFacing($w);
     }
 
-    public function readStateFromData(int $id, int $stateMeta): void
+    public function getFillLevel(): int
     {
-        $this->fill = BlockDataSerializer::readBoundedInt("fill", $stateMeta, 0, 8);
+        return $this->fillLevel;
     }
 
-    public function getStateBitmask(): int
+    public function setFillLevel(int $fillLevel): self
     {
-        return 0b1111;
+        if($fillLevel < 0 || $fillLevel > 8){
+            throw new \InvalidArgumentException("Fill level must be in range 0-8");
+        }
+        $this->fillLevel = $fillLevel;
+        return $this;
     }
 
     private function spawnParticleEffect(Vector3 $position): void
@@ -92,29 +100,36 @@ class Composter extends Opaque
         $packet = new SpawnParticleEffectPacket();
         $packet->position = $position;
         $packet->particleName = "minecraft:crop_growth_emitter";
-        $this->position->getWorld()->broadcastPacketToViewers($this->position, $packet);
+        
+        $world = $this->position->getWorld();
+        foreach($world->getViewersForPosition($this->position) as $player){
+            $player->getNetworkSession()->sendDataPacket($packet);
+        }
     }
 
     public function onInteract(Item $item, int $face, Vector3 $clickVector, ?Player $player = null, array &$returnedItems = []): bool
     {
-        if ($this->fill >= 8) {
-            $this->fill = 0;
+        if ($this->fillLevel >= 8) {
+            $this->fillLevel = 0;
             $this->position->getWorld()->setBlock($this->position, $this);
             $this->position->getWorld()->addSound($this->position, new ComposteEmptySound());
             $this->position->getWorld()->dropItem($this->position->add(0.5, 1.1, 0.5), VanillaItems::BONE_MEAL());
             return true;
         }
-        
-        if (isset($this->ingredients[$item->getTypeId()]) && $this->fill < 7) {
+
+        $itemId = $item->getTypeId();
+        if (isset($this->ingredients[$itemId]) {
             $item->pop();
+            $returnedItems[] = $item;
+            
             $this->spawnParticleEffect($this->position->add(0.5, 0.5, 0.5));
             
-            if ($this->fill == 0) {
+            if ($this->fillLevel === 0) {
                 $this->incrementFill(true);
                 return true;
             }
-            
-            $chance = $this->ingredients[$item->getTypeId()];
+
+            $chance = $this->ingredients[$itemId];
             if (mt_rand(0, 100) <= $chance) {
                 $this->incrementFill(true);
                 return true;
@@ -122,32 +137,35 @@ class Composter extends Opaque
             
             $this->position->getWorld()->addSound($this->position, new ComposteFillSound());
         }
+        
         return true;
     }
 
-    public function incrementFill(bool $playsound = false): bool
+    public function incrementFill(bool $playSound = false): bool
     {
-        if ($this->fill >= 7) {
+        if ($this->fillLevel >= 7) {
             return false;
         }
         
-        $this->fill++;
-        if ($this->fill >= 7) {
+        $this->fillLevel++;
+        
+        if ($this->fillLevel >= 7) {
             $this->position->getWorld()->scheduleDelayedBlockUpdate($this->position, 25);
         } else {
             $this->position->getWorld()->setBlock($this->position, $this);
         }
         
-        if ($playsound) {
+        if ($playSound) {
             $this->position->getWorld()->addSound($this->position, new ComposteFillSuccessSound());
         }
+        
         return true;
     }
 
     public function onScheduledUpdate(): void
     {
-        if ($this->fill == 7) {
-            $this->fill++;
+        if ($this->fillLevel === 7) {
+            $this->fillLevel++;
             $this->position->getWorld()->setBlock($this->position, $this);
             $this->position->getWorld()->addSound($this->position, new ComposteReadySound());
         }
